@@ -500,7 +500,7 @@ async function callEndpoint(turns, o){
     res = await fetch(CONFIG.endpoint, {
       method: "POST",
       headers: Object.assign({ "Content-Type": "application/json" }, CONFIG.endpointHeaders || {}),
-      body: JSON.stringify({ system: system, messages: messages }),
+      body: JSON.stringify({ text: turns[turns.length - 1].content }),
       signal: o.signal
     });
   }catch(e){
