@@ -243,23 +243,6 @@ svg{display:block}
 /* ============================================================
    EDIT HERE: the things most people want to change.
    ============================================================ */
-const CONFIG = {
-  name: "Anex",
-  inputPlaceholder: "Message Anex",
-  greeting: "What can I help with?",
-  tagline: "Ask a question, draft something, or think a problem through.",
-  // Standing instructions sent with every conversation. Also editable in Settings.
-  persona: "You are Anex, a friendly, concise assistant. Answer directly first, then add detail only if it helps. Use short paragraphs, and use lists or code blocks only when they make the answer easier to use. If you are unsure, say so.",
-
-  // ---- CONNECT YOUR CHATBOT HERE ----
-  // Paste the URL of your own chatbot server. The page sends it a POST request with JSON:
-  //   { "system": "<instructions>", "messages": [ { "role": "user" | "assistant", "content": "..." }, ... ] }
-  // Your server can answer with either:
-  //   - JSON containing the reply as "reply", "text" or "message" (OpenAI-style "choices" also works), or
-  //   - plain text, streamed or not.
-  // Leave it empty to run in demo mode. NEVER put a secret API key in this file: anyone can read it.
-  // Keep keys on your server and have the server call the AI provider.
-    endpoint: "https://webhook.botpress.cloud/v1/stream/bots/e05c3883-cf35-46530-9927-3d3b8ec0c4447/inputs",
 
   // Extra headers to send, for example { "X-Site-Token": "public-token" } (must not be a secret).
   endpointHeaders: {},
