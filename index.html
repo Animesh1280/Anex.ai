@@ -760,6 +760,280 @@ renderAll();
 
 <script src="https://botpress.cloud"></script>
 <script src="https://bpcontent.cloud" defer></script>
+
+   <script>
+(function () {
+  try {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    /* ---------- CONFIG (edit freely) ---------- */
+    var AGENTS = [
+      { name: "Anex",   color: "#ff5b3a", text: "#fff" },
+      { name: "Design", color: "#22d3ee", text: "#06222a" },
+      { name: "Code",   color: "#a3e635", text: "#1a2a05" },
+      { name: "Ship",   color: "#a78bfa", text: "#fff" },
+      { name: "Test",   color: "#f472b6", text: "#fff" }
+    ];
+    var ACCENT = "#5b8cff";
+    var TARGETS = ["header", ".welcome .logo", ".welcome h2", ".welcome p", ".chip", "footer form"];
+    var BUILD_ON_LOAD = true;
+
+    /* ---------- setup ---------- */
+    var coarse = matchMedia("(pointer: coarse)").matches;
+    var cv = document.createElement("canvas");
+    cv.setAttribute("aria-hidden", "true");
+    cv.style.cssText = "position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9999";
+    document.body.appendChild(cv);
+    var ctx = cv.getContext("2d");
+    var W = 0, H = 0, dpr = 1;
+    function resize() {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      W = innerWidth; H = innerHeight;
+      cv.width = W * dpr; cv.height = H * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resize(); addEventListener("resize", resize);
+
+    /* scroll progress bar */
+    var bar = document.createElement("div");
+    bar.style.cssText = "position:fixed;top:0;left:0;height:2px;width:100%;transform-origin:0 50%;transform:scaleX(0);" +
+      "background:linear-gradient(90deg," + ACCENT + ",#8a5bff);z-index:10000;pointer-events:none";
+    document.body.appendChild(bar);
+    var scroller = document.getElementById("chat") || window;
+    function onScroll() {
+      var el = scroller === window ? document.documentElement : scroller;
+      var max = el.scrollHeight - el.clientHeight;
+      bar.style.transform = "scaleX(" + (max > 0 ? Math.min(el.scrollTop / max, 1) : 0) + ")";
+    }
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+
+    /* ---------- helpers ---------- */
+    function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+    function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
+    function easeInOut(t) { return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+    function rr(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+    }
+
+    /* ---------- agents ---------- */
+    var N = coarse ? 4 : AGENTS.length;
+    var agents = AGENTS.slice(0, N).map(function (a, i) {
+      return {
+        name: a.name, color: a.color, text: a.text,
+        x: W * (.2 + .15 * i), y: -40, vx: 0, vy: 0, tx: W / 2, ty: H / 2,
+        off: Math.random() * 100, busy: false, alpha: 1
+      };
+    });
+    var arrow = new Path2D("M0 0 L0 17 L4.6 13 L7.7 20.2 L10.4 19 L7.3 12 L13.2 11.8 Z");
+
+    function drawAgent(a, globalAlpha) {
+      ctx.save();
+      ctx.globalAlpha = globalAlpha * a.alpha;
+      ctx.translate(a.x, a.y);
+      ctx.shadowColor = "rgba(0,0,0,.45)"; ctx.shadowBlur = 8; ctx.shadowOffsetY = 2;
+      ctx.fillStyle = a.color; ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.4; ctx.lineJoin = "round";
+      ctx.fill(arrow); ctx.shadowColor = "transparent"; ctx.stroke(arrow);
+      ctx.font = "600 11px Inter, system-ui, sans-serif";
+      var w = ctx.measureText(a.name).width + 16;
+      ctx.fillStyle = a.color; rr(11, 19, w, 20, 7); ctx.fill();
+      ctx.fillStyle = a.text; ctx.textBaseline = "middle"; ctx.fillText(a.name, 19, 29.5);
+      ctx.restore();
+    }
+
+    /* ---------- pointer ---------- */
+    var mouse = { x: W / 2, y: H / 2, last: -1e9, down: false };
+    var ripples = [];
+    function onMove(e) { mouse.x = e.clientX; mouse.y = e.clientY; mouse.last = performance.now(); if (!coarse) hoverCheck(e.target); }
+    addEventListener("pointermove", onMove, { passive: true });
+    addEventListener("pointerdown", function (e) {
+      mouse.x = e.clientX; mouse.y = e.clientY; mouse.last = performance.now();
+      ripples.push({ x: e.clientX, y: e.clientY, t: performance.now() });
+    }, { passive: true });
+
+    /* ---------- hover selection box ---------- */
+    var hv = { x: 0, y: 0, w: 0, h: 0, tx: 0, ty: 0, tw: 0, th: 0, a: 0, ta: 0 };
+    var HOVER_SEL = ".chip, button, .bubble, #form, .logo";
+    function hoverCheck(t) {
+      var el = t && t.closest ? t.closest(HOVER_SEL) : null;
+      if (!el || !buildDone) { hv.ta = 0; return; }
+      var r = el.getBoundingClientRect();
+      if (hv.a < .02) { hv.x = r.left; hv.y = r.top; hv.w = r.width; hv.h = r.height; }
+      hv.tx = r.left; hv.ty = r.top; hv.tw = r.width; hv.th = r.height; hv.ta = 1;
+    }
+    function drawSelection(x, y, w, h, color, alpha, label, dashedGuides) {
+      if (w < 1 || h < 1 || alpha <= 0.01) return;
+      ctx.save(); ctx.globalAlpha = alpha;
+      if (dashedGuides) {
+        ctx.strokeStyle = color; ctx.globalAlpha = alpha * .22; ctx.lineWidth = 1; ctx.setLineDash([4, 5]);
+        ctx.beginPath();
+        ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.moveTo(x + w, 0); ctx.lineTo(x + w, H);
+        ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.moveTo(0, y + h); ctx.lineTo(W, y + h);
+        ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = alpha;
+      }
+      ctx.fillStyle = color; ctx.globalAlpha = alpha * .07; ctx.fillRect(x, y, w, h);
+      ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.strokeRect(x + .75, y + .75, w - 1.5, h - 1.5);
+      var hs = 6, pts = [[x, y], [x + w, y], [x, y + h], [x + w, y + h]];
+      for (var i = 0; i < 4; i++) {
+        ctx.fillStyle = "#fff"; ctx.fillRect(pts[i][0] - hs / 2, pts[i][1] - hs / 2, hs, hs);
+        ctx.lineWidth = 1.5; ctx.strokeRect(pts[i][0] - hs / 2, pts[i][1] - hs / 2, hs, hs);
+      }
+      if (label) {
+        ctx.font = "600 10.5px Inter, system-ui, sans-serif";
+        var tw = ctx.measureText(label).width + 12, tx = x + w / 2 - tw / 2, ty = y + h + 8;
+        if (ty + 18 > H) ty = y - 26;
+        ctx.fillStyle = color; rr(tx, ty, tw, 18, 6); ctx.fill();
+        ctx.fillStyle = "#fff"; ctx.textBaseline = "middle"; ctx.fillText(label, tx + 6, ty + 9.5);
+      }
+      ctx.restore();
+    }
+
+    /* ---------- build sequence ---------- */
+    var tasks = [], buildDone = !BUILD_ON_LOAD, buildStart = 0;
+    var T_FLY = .45, T_DRAG = .6, T_HOLD = .3, T_FADE = .35, T_ALL = T_FLY + T_DRAG + T_HOLD + T_FADE;
+
+    function collect() {
+      var list = [];
+      TARGETS.forEach(function (sel) {
+        document.querySelectorAll(sel).forEach(function (el) {
+          var r = el.getBoundingClientRect();
+          if (r.width > 4 && r.height > 4 && list.indexOf(el) < 0) list.push(el);
+        });
+      });
+      return list;
+    }
+    function cleanup(el) { el.style.clipPath = ""; el.style.opacity = ""; el.style.willChange = ""; }
+
+    function startBuild() {
+      var els = collect();
+      if (!els.length) { buildDone = true; return; }
+      els.forEach(function (el) { el.style.opacity = "0"; el.style.willChange = "clip-path"; });
+      var perAgentFree = agents.map(function () { return 0; });
+      els.forEach(function (el, i) {
+        var ai = i % agents.length;
+        var start = Math.max(perAgentFree[ai], i * .1);
+        perAgentFree[ai] = start + T_ALL - .1;
+        tasks.push({ el: el, a: agents[ai], start: start, done: false, rect: null });
+      });
+      buildStart = performance.now();
+      setTimeout(finishBuild, (perAgentFree.reduce(function (m, v) { return Math.max(m, v); }, 0) + 1.6) * 1000); // failsafe
+    }
+    function finishBuild() {
+      tasks.forEach(function (t) { cleanup(t.el); t.a.busy = false; });
+      tasks = []; buildDone = true;
+    }
+
+    function updateTasks(now) {
+      if (buildDone) return;
+      var t = (now - buildStart) / 1000, remaining = 0;
+      tasks.forEach(function (k) {
+        if (k.done) return;
+        remaining++;
+        var lt = t - k.start;
+        if (lt < 0) return;
+        var r = k.el.getBoundingClientRect();
+        var a = k.a; a.busy = true; k.rect = r;
+        if (lt < T_FLY) {
+          k.p = 0; a.tx = r.left; a.ty = r.top;
+        } else if (lt < T_FLY + T_DRAG) {
+          var p = easeInOut((lt - T_FLY) / T_DRAG); k.p = p;
+          a.tx = r.left + r.width * p; a.ty = r.top + r.height * p;
+          k.el.style.opacity = "1";
+          var cut = ((1 - p) * 100).toFixed(2) + "%";
+          k.el.style.clipPath = "inset(0 " + cut + " " + cut + " 0)";
+        } else if (lt < T_ALL) {
+          k.p = 1; cleanup(k.el);
+          a.tx = r.left + r.width + 18; a.ty = r.top + r.height + 14;
+          k.fade = clamp((lt - (T_FLY + T_DRAG + T_HOLD)) / T_FADE, 0, 1);
+        } else {
+          k.done = true; cleanup(k.el); a.busy = false; remaining--;
+        }
+      });
+      if (remaining === 0) finishBuild();
+    }
+    function drawTasks() {
+      tasks.forEach(function (k) {
+        if (k.done || !k.rect) return;
+        var r = k.rect, p = k.p || 0;
+        if (p <= 0 && !(k.a && k.a.busy)) return;
+        var fade = k.fade != null ? 1 - k.fade : 1;
+        var appear = p === 0 ? 0 : 1;
+        if (!appear) {
+          ctx.save(); ctx.fillStyle = k.a.color; ctx.globalAlpha = .9;
+          ctx.beginPath(); ctx.arc(r.left, r.top, 3.2, 0, 6.283); ctx.fill(); ctx.restore();
+          return;
+        }
+        var w = r.width * p, h = r.height * p;
+        drawSelection(r.left, r.top, w, h, k.a.color, fade, Math.round(w) + " × " + Math.round(h), true);
+      });
+    }
+
+    /* ---------- main loop ---------- */
+    var visAlpha = 1, lastT = performance.now();
+    function frame(now) {
+      var dt = Math.min((now - lastT) / 1000, 1 / 30); lastT = now;
+      ctx.clearRect(0, 0, W, H);
+      updateTasks(now);
+
+      var idleFor = (now - mouse.last) / 1000;
+      var wantVis = !buildDone ? 1 : (idleFor < (coarse ? 2.5 : 5) ? 1 : 0);
+      visAlpha += (wantVis - visAlpha) * Math.min(dt * 4, 1);
+
+      var k = 110, c = 2 * Math.sqrt(k) * .78, i, j, a, o, dx, dy, d;
+      for (i = 0; i < agents.length; i++) {
+        a = agents[i];
+        if (!a.busy) {
+          if (buildDone) {
+            var ang = now / 1400 + a.off + i * (6.283 / agents.length);
+            var rad = 54 + 26 * Math.sin(now / 1100 + a.off * 2) + i * 6;
+            a.tx = mouse.x + 22 + Math.cos(ang) * rad;
+            a.ty = mouse.y + 14 + Math.sin(ang) * rad * .8;
+          } else {
+            a.tx = W * (.15 + .7 * ((i + .5) / agents.length)); a.ty = -50;
+          }
+        }
+        var kk = a.busy ? k * 1.6 : k * .55;
+        var ax = kk * (a.tx - a.x) - c * a.vx, ay = kk * (a.ty - a.y) - c * a.vy;
+        if (!a.busy) {
+          for (j = 0; j < agents.length; j++) {
+            if (j === i) continue; o = agents[j];
+            dx = a.x - o.x; dy = a.y - o.y; d = Math.hypot(dx, dy) || 1;
+            if (d < 70) { ax += (dx / d) * (70 - d) * 14; ay += (dy / d) * (70 - d) * 14; }
+          }
+        }
+        a.vx += ax * dt; a.vy += ay * dt; a.x += a.vx * dt; a.y += a.vy * dt;
+      }
+
+      /* hover box */
+      hv.x += (hv.tx - hv.x) * Math.min(dt * 16, 1); hv.y += (hv.ty - hv.y) * Math.min(dt * 16, 1);
+      hv.w += (hv.tw - hv.w) * Math.min(dt * 16, 1); hv.h += (hv.th - hv.h) * Math.min(dt * 16, 1);
+      hv.a += (hv.ta - hv.a) * Math.min(dt * 12, 1);
+      if (buildDone) drawSelection(hv.x, hv.y, hv.w, hv.h, ACCENT, hv.a * .9, hv.a > .3 ? Math.round(hv.w) + " × " + Math.round(hv.h) : "", false);
+
+      drawTasks();
+
+      /* click ripples */
+      for (i = ripples.length - 1; i >= 0; i--) {
+        var rp = ripples[i], p = (now - rp.t) / 600;
+        if (p >= 1) { ripples.splice(i, 1); continue; }
+        ctx.save(); ctx.globalAlpha = (1 - p) * .6; ctx.strokeStyle = ACCENT; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(rp.x, rp.y, 6 + easeOut(p) * 34, 0, 6.283); ctx.stroke(); ctx.restore();
+      }
+
+      for (i = 0; i < agents.length; i++) drawAgent(agents[i], visAlpha);
+      requestAnimationFrame(frame);
+    }
+
+    if (BUILD_ON_LOAD) startBuild();
+    requestAnimationFrame(frame);
+  } catch (err) {
+    console.warn("Swarm effect disabled:", err);
+    document.querySelectorAll("[style*='opacity: 0']").forEach(function (e) { e.style.opacity = ""; e.style.clipPath = ""; });
+  }
+})();
+         </script>
    
 
 </body>
